@@ -106,3 +106,4 @@ wcwidth==0.2.6
 websockets==11.0.3
 wheel==0.38.4
 wmctrl==0.4
+xgboost==1.7.6

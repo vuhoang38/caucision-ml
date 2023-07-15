@@ -25,6 +25,7 @@ class Project(Base):
     graph_order = Column(ARRAY(String))
     promotions = Column(ARRAY(String))
     model = Column(BYTEA)
+    model_type = Column(String)
 
     def data_id(self):
         return f"p_{inflection.underscore(str(self.id))}_data"

@@ -4,14 +4,41 @@ from dowhy import CausalModel
 from dowhy.causal_identifier.identified_estimand import IdentifiedEstimand
 
 from econml.metalearners import XLearner
-from sklearn.linear_model import LinearRegression, TweedieRegressor
 from sklearn.preprocessing import OrdinalEncoder
+
+from lightgbm import LGBMRegressor
+from sklearn.multioutput import MultiOutputRegressor
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.multioutput import MultiOutputRegressor
+from sklearn.svm import SVR
+from sklearn.linear_model import LinearRegression, TweedieRegressor
+from xgboost import XGBRegressor
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.neural_network import MLPRegressor
+from sklearn.neighbors import KNeighborsRegressor
+
+from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import train_test_split
+import time
+from sklearn import clone
+
+models = {
+    "Linear Regression": LinearRegression(),
+    "XGBoost": XGBRegressor(),
+    "Tweedie": MultiOutputRegressor(TweedieRegressor()),
+    # "LightGBM": MultiOutputRegressor(LGBMRegressor()),
+    "Random Forest": RandomForestRegressor(),
+    "Support Vector Regression": MultiOutputRegressor(SVR()),
+    "Decision Tree": DecisionTreeRegressor(),
+    "Perceptron": MLPRegressor(),
+    "K-nearest Neighbors": KNeighborsRegressor(),
+}
 
 
 def infer_from_project(
         df: pd.DataFrame,
         control_promotion: str,
-        data_schema: dict,
+        model_type: str,
         causal_graph: str,
 ) -> (pd.DataFrame, XLearner, OrdinalEncoder, IdentifiedEstimand, CausalModel):
     original_df = df
@@ -77,7 +104,8 @@ def infer_from_project(
         Z = estimating_instruments
 
     # TODO: Implement cross validation to choose best estimators
-    est = XLearner(models=LinearRegression())
+    best_model_type, training_results = select_model(X, Y, T, model_type)
+    est = XLearner(models=clone(models[best_model_type]))
     est.fit(Y, T, X=X)
 
     user_effects = original_df
@@ -91,7 +119,7 @@ def infer_from_project(
         )
         user_effects = pd.concat([user_effects, framed_effect], axis=1)
 
-    return user_effects, est, encoder, identified_estimand, model, categories
+    return user_effects, est, encoder, identified_estimand, model, categories, training_results
 
 
 def infer_from_campaign_data(df, identified_estimand, categories, causal_model, est):
@@ -121,3 +149,44 @@ def infer_from_campaign_data(df, identified_estimand, categories, causal_model, 
         user_effects = pd.concat([user_effects, framed_effect], axis=1)
 
     return user_effects
+
+
+def select_model(X, Y, T, model_type):
+    dropped_Y = Y[['conversion']]
+    concat_X = pd.concat([X, T], axis=1)
+    X_train, X_test, y_train, y_test = train_test_split(concat_X, dropped_Y, test_size=0.2, random_state=42)
+
+    results = {}
+    if model_type == 'Auto':
+        for model_name, model in models.items():
+            training_model = clone(model)
+
+            start_time = time.time()
+            training_model.fit(X_train, y_train)
+            end_time = time.time()
+
+            training_time = end_time - start_time
+
+            y_pred = training_model.predict(X_test)
+            rmse = mean_squared_error(y_test, y_pred, squared=False)
+
+            results[model_name] = {
+                'rmse': rmse, 'training_time': training_time,
+            }
+    else:
+        model = clone(models[model_type])
+        start_time = time.time()
+        model.fit(X_train, y_train)
+        end_time = time.time()
+
+        training_time = end_time - start_time
+
+        y_pred = model.predict(X_test)
+        rmse = mean_squared_error(y_test, y_pred, squared=False)
+
+        results[model_type] = {
+            'rmse': rmse, 'training_time': training_time,
+        }
+
+    best_model_type = min(results, key=lambda x: results[x]['rmse'])
+    return best_model_type, results

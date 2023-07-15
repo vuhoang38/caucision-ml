@@ -22,14 +22,14 @@ app = FastAPI()
 celery = initialize_celery()
 
 
-@shared_task(name='train_model')
-def train_model(payload):
+@shared_task(name='train_model', bind=True, autoretry_for=(Exception,), retry_backoff=True, retry_kwargs={'max_retries': 5})
+def train_model(self, payload):
     project = repo.find_project(payload['project_id'])
     scylla_db = Scylla()
 
     df = scylla_db.fetch_table(project.data_id())
-    user_effects, est, encoder, identified_estimand, causal_model, categories = infer_from_project(
-        df, project.control_promotion, project.data_schema, project.causal_graph
+    user_effects, est, encoder, identified_estimand, causal_model, categories, training_results = infer_from_project(
+        df, project.control_promotion, project.model_type, project.causal_graph
     )
 
     model_data = {'est': est, 'encoder': encoder, 'identified_estimand': identified_estimand,
@@ -51,7 +51,8 @@ def train_model(payload):
     data = {
         'user_id': str(project.user_id),
         'project_id': str(project.id),
-        'data_schema': data_schema
+        'data_schema': data_schema,
+        'training_results': training_results
     }
     endpoint = urljoin(settings.API_GATEWAY_URL, "/internal/default_campaign")
     requests.post(endpoint, json=data)
