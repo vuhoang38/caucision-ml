@@ -1,4 +1,5 @@
 import pandas as pd
+from cassandra import AlreadyExists
 from cassandra.cluster import Cluster
 from cassandra.query import BatchStatement, ConsistencyLevel
 from .config import settings
@@ -33,8 +34,11 @@ class Scylla:
         columns_definition = ', '.join([f'\"{column}\" {dtype}' for column, dtype in mapped_schema.items()])
 
         table_creation_query = f"CREATE TABLE {campaign_data_id} ({columns_definition})"
-        self.session.execute(table_creation_query)
-        # TODO: Add error handling (e.g. table already exist) and logging here
+        try:
+            self.session.execute(table_creation_query)
+        except AlreadyExists:
+            self.session.execute(f"DROP TABLE {campaign_data_id}")
+            self.session.execute(table_creation_query)
 
         column_names = df.columns.tolist()
         columns = ', '.join(map(lambda column: f"\"{column}\"", column_names))
